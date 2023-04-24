@@ -940,8 +940,9 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                       Channel :: non_neg_integer(),
                       Ledger :: blockchain_ledger_v1:ledger()) -> blockchain_poc_witness_v1:poc_witnesses().
 valid_witnesses(Element, Channel, Ledger) ->
+    {ok, Nonce} = blockchain_ledger_v1:vars_nonce(Ledger),
     {ok, RegionVars} = blockchain_region_v1:get_all_region_bins(Ledger),
-    valid_witnesses(Element, Channel, RegionVars, Ledger).
+    valid_witnesses(Element, Channel, {Nonce, RegionVars}, Ledger).
 
 valid_witnesses(Element, Channel, RegionVars, Ledger) ->
     TaggedWitnesses = tagged_witnesses(Element, Channel, RegionVars, Ledger),
@@ -998,8 +999,9 @@ is_same_region(SourceRegion0, DstLoc, Ledger) ->
                        Channel :: non_neg_integer(),
                        Ledger :: blockchain_ledger_v1:ledger()) -> tagged_witnesses().
 tagged_witnesses(Element, Channel, Ledger) ->
+    {ok, Nonce} = blockchain_ledger_v1:vars_nonce(Ledger),
     {ok, RegionVars} = blockchain_region_v1:get_all_region_bins(Ledger),
-    tagged_witnesses(Element, Channel, RegionVars, Ledger).
+    tagged_witnesses(Element, Channel, {Nonce, RegionVars}, Ledger).
 
 %%-spec tagged_witnesses(Element :: blockchain_poc_path_element_v1:poc_element(),
 %%                       Channel :: non_neg_integer(),
@@ -1010,8 +1012,7 @@ tagged_witnesses(Element, Channel, RegionVars0, Ledger) ->
     {ok, SourceLoc} = blockchain_ledger_v1:find_gateway_location(SrcPubkeyBin, Ledger),
     RegionVars =
         case RegionVars0 of
-            {ok, RV} -> RV;
-            RV when is_list(RV) -> RV;
+            {N, RV} when is_list(RV), is_integer(N) -> {N, RV};
             {error, _Reason} -> no_prefetch
         end,
     SourceRegion = blockchain_region_v1:h3_to_region(SourceLoc, Ledger, RegionVars),
@@ -1134,11 +1135,12 @@ get_channels(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Version = poc_version(Ledger),
     {ok, RegionVars} = blockchain_region_v1:get_all_region_bins(Ledger),
-    get_channels(Txn, Version, RegionVars, Chain).
+    {ok, Nonce} = blockchain_ledger_v1:vars_nonce(Ledger),
+    get_channels(Txn, Version, {Nonce, RegionVars}, Chain).
 
 -spec get_channels(Txn :: txn_poc_receipts(),
                    POCVersion :: pos_integer(),
-                   RegionVars :: no_prefetch | [{atom(), binary() | {error, any()}}] | {ok, [{atom(), binary() | {error, any()}}]},
+                   RegionVars :: no_prefetch | {pos_integer(), [{atom(), binary() | {error, any()}}]} | {error, any()},
                    Chain :: blockchain:blockchain()) -> {ok, [non_neg_integer()]} | {error, any()}.
 get_channels(Txn, POCVersion, RegionVars, Chain) ->
     Path0 = ?MODULE:path(Txn),
@@ -1163,13 +1165,13 @@ get_channels(Txn, POCVersion, RegionVars, Chain) ->
                     Ledger :: blockchain_ledger_v1:ledger(),
                     Path :: [libp2p_crypto:pubkey_bin()],
                     LayerData :: [binary()],
-                    RegionVars :: no_prefetch | [{atom(), binary() | {error, any()}}] | {ok, [{atom(), binary() | {error, any()}}]} | {error, any()}) -> [non_neg_integer()].
+                    RegionVars :: no_prefetch | [{atom(), binary() | {error, any()}}] | {error, any()}) -> [non_neg_integer()].
 get_channels(_POCVersion, Ledger, Path, LayerData, RegionVars0) ->
     Challengee = hd(Path),
     RegionVars =
         case RegionVars0 of
-            {ok, RV} -> RV;
-            RV when is_list(RV) -> RV;
+            %{ok, RV} -> RV;
+            {N, RV} when is_list(RV), is_integer(N) -> {N, RV};
             no_prefetch -> no_prefetch;
             {error, Reason} -> error({get_channels_region, Reason})
         end,
