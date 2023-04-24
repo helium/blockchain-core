@@ -235,6 +235,7 @@ to_json(Txn, _Opts) ->
         hash => ?BIN_TO_B64(hash(Txn)),
         payer => ?BIN_TO_B58(payer(Txn)),
         amount => amount(Txn),
+        fee => fee(Txn),
         nonce => nonce(Txn)
     }.
 
