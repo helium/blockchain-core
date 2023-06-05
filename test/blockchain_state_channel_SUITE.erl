@@ -32,6 +32,7 @@
     max_scs_open_test/1,
     max_scs_open_v2_test/1,
     sc_dispute_prevention_test/1,
+    sc_reclose_test/1,
     oui_not_found_test/1,
     unknown_owner_test/1,
     crash_single_sc_test/1,
@@ -73,6 +74,7 @@ test_cases() ->
         max_scs_open_test,
         max_scs_open_v2_test,
         sc_dispute_prevention_test,
+        sc_reclose_test,
         oui_not_found_test,
         unknown_owner_test,
         crash_single_sc_test,
@@ -1755,6 +1757,138 @@ max_scs_open_v2_test(Config) ->
 
     %% Make sure we can open another SC now
     {ok, _Block31} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [SignedSCOpenTxn3]]),
+    ok.
+
+sc_reclose_test(Config) ->
+    [RouterNode, GatewayNode1, GatewayNode2 |_] = ?config(nodes, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+
+    %% NOTE: sc_dispute_strategy_version chain var is toggled for this test in init_per_test_case/2
+
+    Self = self(),
+    ok = setup_meck_txn_forwarding(RouterNode, Self),
+    ok = setup_meck_txn_forwarding(GatewayNode1, Self),
+
+    %% Get router chain, swarm and pubkey_bin
+    RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
+    RouterLedger = blockchain:ledger(RouterChain),
+    RouterSwarm = ct_rpc:call(RouterNode, blockchain_swarm, swarm, []),
+
+    {ok, RouterPubkey, _, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
+    RouterPubkeyBin = libp2p_crypto:pubkey_to_bin(RouterPubkey),
+
+    {ok, Gateway1Pubkey, _, _} = ct_rpc:call(GatewayNode1, blockchain_swarm, keys, []),
+    Gateway1PubkeyBin = libp2p_crypto:pubkey_to_bin(Gateway1Pubkey),
+
+    {ok, Gateway2Pubkey, Gateway2SigFun, _} = ct_rpc:call(GatewayNode2, blockchain_swarm, keys, []),
+    Gateway2PubkeyBin = libp2p_crypto:pubkey_to_bin(Gateway2Pubkey),
+
+    ct:pal("Pubkeys: ~n~p",
+           [[
+             {routernode, RouterPubkeyBin},
+             {gateway_1, Gateway1PubkeyBin},
+             {gateway_2, Gateway2PubkeyBin}
+            ]]),
+
+    %% Create OUI txn
+    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
+
+    %% ===================================================================
+    %% - open state channel
+
+    ID1 = crypto:strong_rand_bytes(24),
+    Nonce1 = 1,
+    SignedSCOpenTxn1 = create_sc_open_txn(RouterNode, ID1, 12, 1, Nonce1, 99),
+
+    %% Adding block with state channels
+    {ok, B2} = add_block(RouterNode, RouterChain, ConsensusMembers, [SignedOUITxn, SignedSCOpenTxn1]),
+    ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [B2, RouterChain, Self, RouterSwarm]),
+
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 2),
+
+    %% sanity check
+    OpenSCCountForOwner0 = ct_rpc:call(RouterNode, blockchain_ledger_v1, count_open_scs_for_owner, [[ID1], RouterPubkeyBin, RouterLedger]),
+    ?assertEqual(1, OpenSCCountForOwner0),
+
+
+    %% Helpers
+    AddFakeBlocksFn =
+        fun(NumBlocks, ExpectedBlock, Nodes) ->
+                ok = add_and_gossip_fake_blocks(NumBlocks, ConsensusMembers, RouterNode, RouterSwarm, RouterChain, Self),
+                lists:foreach(fun(Node) ->
+                                      ok = blockchain_ct_utils:wait_until_height(Node, ExpectedBlock)
+                              end, Nodes)
+                end,
+
+    SendPacketsFn = fun(NumPackets, Gateway) ->
+                         lists:foreach(
+                           fun(_) ->
+                                   DevNonce0 = crypto:strong_rand_bytes(2),
+                                   Packet0 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce0, 0.0),
+                                   ok = ct_rpc:call(Gateway, blockchain_state_channels_client, packet, [Packet0, [], 'US915'])
+                           end,
+                           lists:seq(1, NumPackets)
+                          )
+                 end,
+
+    %% Wait until Gateways have gotten blocks with OUI txn to send packets
+    AddFakeBlocksFn(3, 5, [RouterNode, GatewayNode1]),
+
+    %% ===================================================================
+    %% Sending 10 packet from first gateway
+    SendPacketsFn(20, GatewayNode1),
+    AddFakeBlocksFn(1, 6, [RouterNode, GatewayNode1]),
+
+    %% Send packets from another gateway
+    %% Gateway2 needs to be involved state channel to dispute
+    SendPacketsFn(20, GatewayNode2),
+    AddFakeBlocksFn(1, 7, [RouterNode, GatewayNode1, GatewayNode2]),
+
+    %% ===================================================================
+    %% Wait until we can get a state channel with both summaries
+    %% Failures to dial during this test can cause failures here
+    ok = test_utils:wait_until(
+           fun() ->
+                   case get_active_state_channel(RouterNode, ID1) of
+                       worker_not_started -> {false, worker_not_started};
+                       SC ->
+                           case length(blockchain_state_channel_v1:summaries(SC)) of
+                               2 -> true;
+                               C -> {false, summary_count, C}
+                           end
+                   end
+           end, 100, 100),
+
+    SC0 = get_active_state_channel(RouterNode, ID1),
+    ct:pal("Routernode SC: ~p", [lager:pr(SC0, blockchain_state_channel_v1)]),
+
+    %% ===================================================================
+    %% Let the state channel expire and add to the chain
+    AddFakeBlocksFn(8, 15, [RouterNode]),
+
+    %% Adding the close txn to the chain
+    receive
+        {txn, Txn} ->
+            %% routernode closing the state channel
+            {ok, B18} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn], #{}, false]),
+            ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [B18, RouterChain, Self, RouterSwarm])
+    after 10000 ->
+        ct:fail("close txn timeout")
+    end,
+
+    %% Wait for the close txn to make it to the router-node
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 16),
+
+    %% ===================================================================
+
+    %% The unsubmitted close is no longer valid
+    NormalCloseFromGateway2 = blockchain_txn_state_channel_close_v1:new(SC0, Gateway2PubkeyBin),
+    NormalCloseFromGateway2Signed = blockchain_txn_state_channel_close_v1:sign(NormalCloseFromGateway2, Gateway2SigFun),
+    Res4 = ct_rpc:call(RouterNode, blockchain_txn_state_channel_close_v1, is_valid, [NormalCloseFromGateway2Signed, RouterChain]),
+    ct:pal("Trying to create block with bad txn: ~p", [Res4]),
+    ?assertEqual({error, redundant}, Res4, "Cannot reclose an already closed state channel"),
+
     ok.
 
 sc_dispute_prevention_test(Config) ->

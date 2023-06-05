@@ -307,7 +307,10 @@ handle_info({blockchain_event, {add_block, BlockHash, false, Ledger}},
             Block ->
                 lists:foldl(
                     fun(T, Acc) ->
-                        case blockchain_txn:type(T) == blockchain_txn_state_channel_close_v1 of
+                        case
+                          blockchain_txn:type(T) == blockchain_txn_state_channel_close_v1
+                          andalso blockchain_txn_state_channel_close_v1:state_channel_owner(T) == blockchain_txn_state_channel_close_v1:closer(T)
+                        of
                             true ->
                                 SC = blockchain_txn_state_channel_close_v1:state_channel(T),
                                 SCID = blockchain_txn_state_channel_close_v1:state_channel_id(T),
