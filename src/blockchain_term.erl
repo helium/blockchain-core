@@ -12,7 +12,6 @@
 -export_type([
     t/0,
     result/0,
-    stream/1, % TODO Find stream def a better home module than this one.
     error/0,
     frame/0,
     unsound/0,
@@ -105,7 +104,7 @@
 
 -include("blockchain_term.hrl").
 
-%% TODO Maybe use a map?
+%% TODO Switch to a map or a record?
 -type file_handle() ::
     {
         file:fd(),
@@ -113,42 +112,41 @@
         Len :: pos_integer()
     }.
 
--type stream(A) :: fun(() -> none | {some, {A, stream(A)}}).
-
 -spec from_bin(binary()) -> result().
 from_bin(<<Bin/binary>>) ->
     envelope(Bin).
 
 %% Tries to stream a list of binaries from file.
-%% TODO Generalize.
 -spec from_file_stream_bin_list(file_handle()) ->
-    stream({ok, binary()} | {error, term()}).
+    data_stream:t({ok, binary()} | {error, term()}).
 from_file_stream_bin_list({Fd, Pos, Len}) ->
     {ok, Pos} = file:position(Fd, {bof, Pos}),
-    case file:read(Fd, 6) of
-        {ok, <<?ETF_VERSION, ?ETF_TAG_LIST_EXT, N:32/integer-unsigned-big>>} ->
-            stream_bin_list_elements(N, {Fd, Pos + 6, Len});
-        {ok, <<V/binary>>} ->
-            fun () -> {some, {{error, {bad_etf_version_and_tag_and_len, V}}, stream_end()}} end;
-        {error, _}=Err ->
-            fun () -> {some, {Err, stream_end()}} end
-    end.
+    Next =
+        case file:read(Fd, 6) of
+            {ok, <<?ETF_VERSION, ?ETF_TAG_LIST_EXT, N:32/integer-unsigned-big>>} ->
+                next_bin_list_elements(N, {Fd, Pos + 6, Len});
+            {ok, <<V/binary>>} ->
+                fun () -> {some, {{error, {bad_etf_version_and_tag_and_len, V}}, next_end()}} end;
+            {error, _}=Err ->
+                fun () -> {some, {Err, next_end()}} end
+        end,
+    data_stream:from_fun(Next).
 
--spec stream_bin_list_elements(non_neg_integer(), file_handle()) ->
-    stream({ok, binary()} | {error, term()}).
-stream_bin_list_elements(0, {Fd, Pos, _}) ->
+-spec next_bin_list_elements(non_neg_integer(), file_handle()) ->
+    data_stream:next({ok, binary()} | {error, term()}).
+next_bin_list_elements(0, {Fd, Pos, _}) ->
     fun () ->
         {ok, Pos} = file:position(Fd, {bof, Pos}),
         case file:read(Fd, 1) of
             {ok, <<?ETF_TAG_NIL_EXT>>} ->
                 none;
             {ok, <<_/binary>>} ->
-                {some, {{error, bad_bin_list_nil_tag}, stream_end()}};
+                {some, {{error, bad_bin_list_nil_tag}, next_end()}};
             {error, _}=Err ->
-                {some, {Err, stream_end()}}
+                {some, {Err, next_end()}}
         end
     end;
-stream_bin_list_elements(N, {Fd, Pos0, L}) ->
+next_bin_list_elements(N, {Fd, Pos0, L}) ->
     fun () ->
         {ok, Pos1} = file:position(Fd, {bof, Pos0}),
         case file:read(Fd, 5) of
@@ -156,18 +154,20 @@ stream_bin_list_elements(N, {Fd, Pos0, L}) ->
                 {ok, Pos2} = file:position(Fd, {bof, Pos1 + 5}),
                 case file:read(Fd, Len) of
                     {ok, <<Bin/binary>>} ->
-                        {some, {Bin, stream_bin_list_elements(N - 1, {Fd, Pos2 + Len, L})}};
+                        {some, {Bin, next_bin_list_elements(N - 1, {Fd, Pos2 + Len, L})}};
                     {error, _}=Err ->
-                        {some, {Err, stream_end()}}
+                        {some, {Err, next_end()}}
                 end;
             {ok, <<_/binary>>} ->
-                {some, {{error, bad_bin_list_element}, stream_end()}};
+                {some, {{error, bad_bin_list_element}, next_end()}};
             {error, _}=Err ->
-                {some, {Err, stream_end()}}
+                {some, {Err, next_end()}}
         end
     end.
 
-stream_end() ->
+-spec next_end() ->
+    data_stream:next({ok, binary()} | {error, term()}).
+next_end() ->
     fun () -> none end.
 
 %% TODO -spec from_bin_with_contract(binary(), blockchain_contract:t()) ->
