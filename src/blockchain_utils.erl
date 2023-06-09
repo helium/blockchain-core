@@ -11,6 +11,7 @@
 -include("blockchain_vars.hrl").
 
 -export([
+    cpus/0,
     shuffle_from_hash/2,
     shuffle/1, shuffle/2,
     rand_from_hash/1, rand_state/1,
@@ -309,6 +310,7 @@ validation_width() ->
             N
     end.
 
+-spec cpus() -> non_neg_integer().
 cpus() ->
     Ct = erlang:system_info(schedulers_online),
     max(2, ceil(Ct/2) + 1).
